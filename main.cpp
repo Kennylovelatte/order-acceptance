@@ -64,7 +64,33 @@ typedef IloArray<NumMatrix> Num3Matrix;
 
 using std::cout; 
 using std::endl; 
+using ::time;
 
+// // /////////////////////////////////////////////
+class cut_DM
+{
+    public:
+    int cnt_SPM_5 = 0;
+    int cnt_SPM_6 = 0;
+    int cnt_SPM_7 = 0;
+    int cnt_SPM_lb = 0;
+    int cnt_SPM_ub = 0;
+
+    int cnt_MP_10 = 0;
+    int cnt_MP_11 = 0;
+    int cnt_MP_12 = 0;
+
+};
+
+class cut_CLASSIC
+{
+    public:
+    int cnt_MP_no_good = 0;
+    int cnt_MP_combinatorial = 0;
+    int cnt_MP_LBBD = 0;
+    int cnt_MP_lb = 0;
+    int cnt_MP_ub = 0;
+};
 
 // / //////////////PARAMETER SETTINGS////////////////////////////
 
@@ -111,7 +137,12 @@ void writeResult(
     const double DM_obj,
     const double DM_time,
     const double DM_finalGap,
-    const bool DM_find_feasible
+    const bool DM_find_feasible,
+    const double cl_LBBD_obj,
+    const double cl_LBBD_time,
+    const bool cl_find_feasible,
+    cut_DM *p_DM,
+    cut_CLASSIC *p_CL
 );
 
 // / /////////////FUNCTIONS ABOUT MIP MODEL/////////////////////
@@ -133,6 +164,7 @@ void MIP(
 //input: time limit
 //return: obj, solution time
 void DM(
+    cut_DM *p_DM,
     const int DM_timeLimit,
     double &DM_obj,
     double &DM_time,
@@ -144,6 +176,7 @@ void DM(
 //empty vectors to store value of Zj, Xij, Cmax
 //return: master problem solution {Zj, Xij, Cmax, obj}
 void MP_DM(
+    cut_DM *p_DM,
     const int numIter,
     const int DM_timeLimit,
     const time_t &startTime,
@@ -164,6 +197,7 @@ void MP_DM(
 //input: valued Zj, Xij
 //check whether there is a global feasible solution
 bool SP_DM(
+    cut_DM *p_DM,
     const vector<double> &Zj_Value,
     const vector< vector<double> > &Xij_Value,
     const int DM_timeLimit,
@@ -173,6 +207,7 @@ bool SP_DM(
 );
 
 void SPM(
+    cut_DM *p_DM,
     const int SP_IterNum,
     const int DM_timeLimit,
     const time_t &startTime,
@@ -207,6 +242,54 @@ void checkSP(
     const vector<double> &Zj_Value
 );
 
+// ////////////////////////////////////////////////////
+// classic LBBD decomposition method
+//input: time limit
+//return: obj, solution time
+
+void cl_LBBD(
+    cut_CLASSIC *p_CL,
+    const int cl_LBBD_timeLimit,
+    double &cl_LBBD_obj,
+    double &cl_LBBD_time,
+    bool &cl_LBBD_find_feasible
+);
+
+void cl_MP(
+    cut_CLASSIC *p_CL,
+    const int numIter,
+    const int DM_timeLimit,
+    const time_t &startTime,
+    const vector< vector<double> > &Zj_Value_h,
+    const vector<double> &CMAX_Value_h,
+    const vector<double> &MP_obj_h,
+    const vector<double> &SP_Cmax_h,
+    const vector< vector<double> > &SP_Oi_h,
+    const vector< vector< vector<double> > > &Xij_Value_h,
+    const vector<bool> SP_Feasible_h,
+    vector<double> &Zj_Value,
+    vector< vector<double> > &Xij_Value,
+    double &CMAX_Value, 
+    double &MP_obj,
+    bool &is_MP_feasible,
+    bool &MP_reach_time_limit,
+    bool &MP_solution_unknown
+);
+
+void cl_SP(
+    const int SP_IterNum,
+    const int DM_timeLimit,
+    const time_t &startTime,
+    const vector<int> &acceptJobs,
+    const vector< vector< vector< double> > > &Xij_Value_h,
+    bool &is_SPS_feasible,
+    double &SPS_Cmax,
+    vector< vector<double> > &SPS_Oi_h,
+    bool &SPS_reach_timelimit,
+    bool &SPS_solution_unknown
+);
+
+
 
 // / //////////////////////////////////////////////////////////
 
@@ -217,30 +300,21 @@ int main(int, char **)
     {
         generate_data();
 
-        // / //////////////MIP MODEL/////////////////////////////////////////
-
-        //MIP model input 
-        int MIP_timeLimit = 1800;
-        //MIP model output
-        double MIP_obj, MIP_bestBound, MIP_time, MIP_finalGap;
-        /*MIP(MIP_timeLimit, MIP_obj, MIP_bestBound, MIP_time, MIP_finalGap);
-        //print MIP model output
-        cout << "MIP MODEL OUTPUT:" <<  '\n'
-        << '\t' << "obj : "  << MIP_obj << '\n' 
-        << '\t' << "bb  : "  << MIP_bestBound << '\n'
-        << '\t' << "time: "  << MIP_time << '\n'
-        << '\t' << "gap : "  << MIP_finalGap << '\n'
-        << endl;*/
+        
 
         // / ////////////DECOMPOSITION METHOD/////////////////////////////// 
-
+        //new cut counter 
+        cut_DM cuts_DM;
+        cut_DM *p_DM = &cuts_DM;
         //Decomposition method input
         int DM_timeLimit = 1800;
         //Decomposition method output
         double DM_obj, DM_time;
         double DM_finalGap;//decomposition method gap with MIP model
         bool DM_find_feasible;//if could get a feasible solution within time limit 
-        DM(DM_timeLimit,DM_obj,DM_time,DM_find_feasible);
+        
+        DM( &cuts_DM,
+            DM_timeLimit,DM_obj,DM_time,DM_find_feasible);
 
         if (DM_find_feasible)
         {
@@ -261,12 +335,95 @@ int main(int, char **)
             << endl;
         }
 
+        // / //////////////////////////////////////////
+        //classic LBBD
+        cut_CLASSIC cut_cl;
+        cut_CLASSIC *p_CL = &cut_cl;
+        int cl_LBBD_timelimit = 1800;
+        double cl_LBBD_obj, cl_LBBD_time;
+        bool cl_LBBD_find_feasible;
 
-        //cout << "MIP MODEL obj : "  << MIP_obj << endl;
+        
+
+        cl_LBBD(
+            &cut_cl,
+            cl_LBBD_timelimit,
+            cl_LBBD_obj, 
+            cl_LBBD_time, 
+            cl_LBBD_find_feasible
+        );
+
+        if (cl_LBBD_find_feasible)
+        {
+             cout << "CLASSIC LBBD OUTPUT:" <<  '\n'
+            << '\t' << "obj : "  << cl_LBBD_obj << '\n' 
+            << '\t' << "time: "  << cl_LBBD_time << '\n'
+            << endl;
+        }
+        else
+        {
+            cout << "CLASSIC LBBD METHOD OUTPUT:" <<  '\n'
+            << '\t' << " time limit ! No solution has found !"  
+            << endl;
+        }
+
+
+
+        //cout << "pointer DM \n " << 
+        // p_DM->cnt_MP_10 << " " <<  
+        // p_DM->cnt_MP_11 << " " << 
+        // p_DM->cnt_MP_12 << " " << 
+        // p_DM->cnt_SPM_5 << " " << 
+        // p_DM->cnt_SPM_6 << " " << 
+        // p_DM->cnt_SPM_7 << " " << 
+        // p_DM->cnt_SPM_lb << " " << 
+        // p_DM->cnt_SPM_ub << endl << endl;
+
+        // cout << "pointer CL \n" << 
+        // p_CL->cnt_MP_combinatorial << "  " << 
+        // p_CL->cnt_MP_lb << "  " << 
+        // p_CL->cnt_MP_LBBD << "  " <<
+        // p_CL->cnt_MP_no_good << "  " << 
+        // p_CL->cnt_MP_ub << endl
+        // << endl;
+
+
+        if (DM_find_feasible)
+        {
+                  
+            //DM_finalGap = (DM_obj - MIP_obj)/MIP_obj;
+            //print decomposition method output
+            cout << "DECOMPOSITION METHOD OUTPUT:" <<  '\n'
+            << '\t' << "obj : "  << DM_obj << '\n' 
+            << '\t' << "time: "  << DM_time << '\n'
+            //<< '\t' << "gap : "  << DM_finalGap << '\n'
+            << endl;
+
+        }
+
+        // / //////////////MIP MODEL/////////////////////////////////////////
+
+        //MIP model input 
+        int MIP_timeLimit = 1800;
+        //MIP model output
+        double MIP_obj, MIP_bestBound, MIP_time, MIP_finalGap;
+        MIP(MIP_timeLimit, MIP_obj, MIP_bestBound, MIP_time, MIP_finalGap);
+        //print MIP model output
+        cout << "MIP MODEL OUTPUT:" <<  '\n'
+        << '\t' << "obj : "  << MIP_obj << '\n' 
+        << '\t' << "bb  : "  << MIP_bestBound << '\n'
+        << '\t' << "time: "  << MIP_time << '\n'
+        << '\t' << "gap : "  << MIP_finalGap << '\n'
+        << endl;
+
+
+        
+        
 
         // / ////////////////////////////////////////////////////////////// 
 
-        writeResult(numberInstance,MIP_obj,MIP_bestBound,MIP_time,MIP_finalGap,DM_obj,DM_time,DM_finalGap,DM_find_feasible);
+        writeResult(numberInstance,MIP_obj,MIP_bestBound,MIP_time,MIP_finalGap,DM_obj,DM_time,DM_finalGap,DM_find_feasible,
+        cl_LBBD_obj,cl_LBBD_time,cl_LBBD_find_feasible,p_DM,p_CL);
 
         /*if (round(MIP_obj) != round(DM_obj))
         {
@@ -283,12 +440,12 @@ int main(int, char **)
 
 void generate_data()
 {
-    sleep(2);
+    sleep(1);
     srand(time(NULL));
     // / ////////// M  N  L  ///////////////////////////
     M = 2;
-    N = 250;
-    L = 99999;
+    N = 200;
+    L = 9999999;
     
     cout << "M :" << M << '\n' 
     << "N :" << N << '\n' << endl;
@@ -497,7 +654,12 @@ void writeResult(
     const double DM_obj,
     const double DM_time,
     const double DM_finalGap,
-    const bool DM_find_feasible
+    const bool DM_find_feasible,
+    const double cl_LBBD_obj,
+    const double cl_LBBD_time,
+    const bool cl_find_feasible,
+    cut_DM *p_DM,
+    cut_CLASSIC *p_CL
 )
 {
 
@@ -512,13 +674,13 @@ void writeResult(
     o_file.open(sFileName);
 
     //start writing in the txt
-    //o_file << "Results of MIP model: obj, time" << endl;
-    //o_file << " obj = " << MIP_obj << "  time = " << MIP_time << endl;
-    //o_file << "Gap and the best bound:" << endl;
-    //o_file << " BestBound = " << MIP_bestBound << "  Gap = " << MIP_finalGap << endl;
+    o_file << "Results of MIP model: obj, time" << endl;
+    o_file << " obj = " << MIP_obj << "  time = " << MIP_time << endl;
+    o_file << "Gap and the best bound:" << endl;
+    o_file << " BestBound = " << MIP_bestBound << "  Gap = " << MIP_finalGap << endl;
 
-    //o_file << endl;
-    //o_file << "------------------------------------------------------------" << endl;
+    o_file << endl;
+    o_file << "------------------------------------------------------------" << endl;
 
 
     if (DM_find_feasible)
@@ -527,12 +689,48 @@ void writeResult(
         o_file << "obj = " << DM_obj << " time = " << DM_time; 
         //<< "  Gap = " << DM_finalGap;
         o_file << endl;
+        o_file << "Cuts and bounds:" << endl;
+        o_file <<      
+        "Cut SPM(5) " << p_DM->cnt_SPM_5 << endl <<
+        "Cut SPM(6) " << p_DM->cnt_SPM_6 << endl <<
+        "Cut SPM(7) " << p_DM->cnt_SPM_7 << endl <<
+        "Cut SPM LB " << p_DM->cnt_SPM_lb << endl <<
+        "Cut SPM UB " << p_DM->cnt_SPM_ub << endl <<
+        "Cut MP(10) " << p_DM->cnt_MP_10 << endl <<  
+        "Cut MP(11) " << p_DM->cnt_MP_11 << endl <<
+        "Cut MP(12) " << p_DM->cnt_MP_12 << endl << endl;
+
     }
     else
     {
         o_file << "Results of Decomposition method: obj, time" << endl;
         o_file << " no feasible solution found !" << endl;
         o_file <<  " time = " << DM_time << endl;
+        o_file << endl;
+    }
+
+    o_file << "------------------------------------------------------------" << endl;
+
+
+    if (cl_find_feasible)
+    {
+        o_file << "Results of Classic LBBD method: obj, time" << endl;
+        o_file << "obj = " << cl_LBBD_obj << " time = " << cl_LBBD_time; 
+        o_file << endl;
+        o_file << "Cuts and bounds:" << endl;
+        o_file << 
+        "Cut combinatorial " << p_CL->cnt_MP_combinatorial << endl <<    
+        "Cut LBBD " << p_CL->cnt_MP_LBBD << endl << 
+        "Cut no-good " << p_CL->cnt_MP_no_good << endl << 
+        "Cut LB " <<p_CL->cnt_MP_lb << endl << 
+        "Cut UB " << p_CL->cnt_MP_ub << endl << endl;
+
+    }
+    else
+    {
+        o_file << "Results of Classic LBBD method: obj, time" << endl;
+        o_file << " no feasible solution found !" << endl;
+        o_file <<  " time = " << cl_LBBD_time << endl;
         o_file << endl;
     }
 
@@ -658,14 +856,14 @@ void MIP(
             }
         }
 
-        //constraint (1c) (1m) (1k)
+        //constraint  (1j) (1h)
         {
             for (int j = 0; j != N; j++)
             {
-                for (int i = 0; i != M; i++)
-                {
-                    //model.add(xij[i][j] <= zj[j]);
-                }
+                //for (int i = 0; i != M; i++)
+                //{
+                //    model.add(xij[i][j] <= zj[j]);
+                //}
                 model.add(Cmax >= Cj[j]);
                 model.add(Cj[j] <= zj[j] * L);
             }
@@ -674,7 +872,7 @@ void MIP(
 
        
         
-        //constraint (1d) 
+        //constraint (1c) 
         {
             for (int i = 0; i != M; i++)
             {
@@ -682,7 +880,7 @@ void MIP(
             }
         }
         
-        //constraint (1e)
+        //constraint (1d)
         {
             for (int i = 0; i != M; i++)
             {
@@ -700,7 +898,7 @@ void MIP(
             }
         }
         
-        //constraint (1f)
+        //constraint (1e)
         {
             for (int i = 0; i != M; i++)
             {
@@ -718,33 +916,33 @@ void MIP(
             }
         }
 
-        //constraint (1g)
-        /*{
-            for (int i = 0; i != M; i++)
-            {
-                for (int j = 0; j != N + 1; j++)
-                {
-                    IloExpr sum1(env);
-                    for (int k = 0; k != N + 1; k++)
-                    {
-                        if (j != k)
-                            sum1 += yijk[i][j][k];
-                    }
-                    IloExpr sum2(env);
-                    for (int h = 0; h != N + 1; h++)
-                    {
-                        if (j != h)
-                            sum2 += yijk[i][h][j];
-                    }
-                    model.add(sum1 == sum2);
-                    sum1.end();
-                    sum2.end();
-                }
-            }
-        }*/
+        //constraint 
+        // {
+        //     for (int i = 0; i != M; i++)
+        //     {
+        //         for (int j = 0; j != N + 1; j++)
+        //         {
+        //             IloExpr sum1(env);
+        //             for (int k = 0; k != N + 1; k++)
+        //             {
+        //                 if (j != k)
+        //                     sum1 += yijk[i][j][k];
+        //             }
+        //             IloExpr sum2(env);
+        //             for (int h = 0; h != N + 1; h++)
+        //             {
+        //                 if (j != h)
+        //                     sum2 += yijk[i][h][j];
+        //             }
+        //             model.add(sum1 == sum2);
+        //             sum1.end();
+        //             sum2.end();
+        //         }
+        //     }
+        // }
         
         
-        //constraint (1j) (1n)
+        //constraint (1g) (1k)
         {
             for (int i = 0; i != M; i++)
             {
@@ -767,7 +965,7 @@ void MIP(
 
         
         //constraint (1h)
-        /*{
+        {
             for (int i = 0; i != M; i++)
             {
                 IloExpr sum(env);
@@ -778,15 +976,15 @@ void MIP(
                 model.add(sum <= 1);
                 sum.end();
             }
-        }*/
+        }
         
-        //constraint (1l)
+        //constraint (1i)
         {
             model.add(Cj[N] == 0);
         }
         
         
-        //constraint (1i) (1o)
+        //constraint (1f) (1l)
         {
             for (int i = 0; i != M; i++)
             {
@@ -892,6 +1090,7 @@ void MIP(
 }
 
 void DM(
+    cut_DM *p_DM,
     const int DM_timeLimit,
     double &DM_obj,
     double &DM_time,
@@ -926,7 +1125,8 @@ void DM(
         bool MP_reach_time_limit = false;
         bool MP_solution_unknown = false;
 
-        MP_DM(numIter, DM_timeLimit, DM_begin, Zj_Value_h, CMAX_Value_h, MP_obj_h, SP_Cmax_h, Zj_Value, Xij_Value, CMAX_Value, MP_obj, is_MP_feasible, MP_reach_time_limit, MP_solution_unknown);
+        MP_DM(p_DM,
+            numIter, DM_timeLimit, DM_begin, Zj_Value_h, CMAX_Value_h, MP_obj_h, SP_Cmax_h, Zj_Value, Xij_Value, CMAX_Value, MP_obj, is_MP_feasible, MP_reach_time_limit, MP_solution_unknown);
 
         if (MP_solution_unknown == true || MP_reach_time_limit == true)
         {
@@ -976,7 +1176,8 @@ void DM(
 
                 bool SP_reach_timelimit = false;
                 
-                SP_any_feasible_solution = SP_DM(Zj_Value, Xij_Value, DM_timeLimit, DM_begin, SP_feasible_Cmax, SP_reach_timelimit);
+                SP_any_feasible_solution = SP_DM(p_DM,
+                    Zj_Value, Xij_Value, DM_timeLimit, DM_begin, SP_feasible_Cmax, SP_reach_timelimit);
 
                 SP_Cmax_h.push_back(SP_feasible_Cmax);
 
@@ -1015,7 +1216,8 @@ void DM(
 
         // // ///////////////////OPTIMAL CONDITION///////////////////////////////
 
-        if (is_MP_feasible == false || SP_feasible_Cmax == CMAX_Value)
+        if (is_MP_feasible == false || 
+        (SP_feasible_Cmax == CMAX_Value && SP_any_feasible_solution ))
         {
             DM_stop_condition = false;
         }
@@ -1055,6 +1257,7 @@ void DM(
 }
 
 void MP_DM(
+    cut_DM *p_DM,
     const int numIter,
     const int DM_timeLimit,
     const time_t &startTime,
@@ -1138,18 +1341,18 @@ void MP_DM(
                 }
             }
 
-            //constraint (1c)
-            /*{
-                for (int j = 0; j != N; j++)
-                {
-                    for (int i = 0; i != M; i++)
-                    {
-                        MP_model.add(xij[i][j] <= zj[j]);
-                    }
-                }
-            }*/
+            //constraint 
+            // {
+            //     for (int j = 0; j != N; j++)
+            //     {
+            //         for (int i = 0; i != M; i++)
+            //         {
+            //             MP_model.add(xij[i][j] <= zj[j]);
+            //         }
+            //     }
+            // }
 
-            //constraint (1d)
+            //constraint (1c)
             {
                 for (int i = 0; i != M; i++)
                 {
@@ -1157,7 +1360,7 @@ void MP_DM(
                 }
             }
 
-            //constraint (1e)
+            //constraint (1d)
             {
                 for (int i = 0; i != M; i++)
                 {
@@ -1175,7 +1378,7 @@ void MP_DM(
                 }
             }
 
-            //constraint (1f)
+            //constraint (1e)
             {
                 for (int i = 0; i != M; i++)
                 {
@@ -1193,33 +1396,33 @@ void MP_DM(
                 }
             }
 
-            //constraint (1g)
-            /*{
-                for (int i = 0; i != M; i++)
-                {
-                    for (int j = 0; j != N + 1; j++)
-                    {
-                        IloExpr sum1(MP_env);
-                        for (int k = 0; k != N + 1; k++)
-                        {
-                            if (j != k)
-                                sum1 += yijk[i][j][k];
-                        }
-                        IloExpr sum2(MP_env);
-                        for (int h = 0; h != N + 1; h++)
-                        {
-                            if (j != h)
-                                sum2 += yijk[i][h][j];
-                        }
-                        MP_model.add(sum1 == sum2);
-                        sum1.end();
-                        sum2.end();
-                    }
-                }
-            }*/
+            //constraint
+            // {
+            //     for (int i = 0; i != M; i++)
+            //     {
+            //         for (int j = 0; j != N + 1; j++)
+            //         {
+            //             IloExpr sum1(MP_env);
+            //             for (int k = 0; k != N + 1; k++)
+            //             {
+            //                 if (j != k)
+            //                     sum1 += yijk[i][j][k];
+            //             }
+            //             IloExpr sum2(MP_env);
+            //             for (int h = 0; h != N + 1; h++)
+            //             {
+            //                 if (j != h)
+            //                     sum2 += yijk[i][h][j];
+            //             }
+            //             MP_model.add(sum1 == sum2);
+            //             sum1.end();
+            //             sum2.end();
+            //         }
+            //     }
+            // }
 
-            //constraint (1h)
-            /*{
+            //constraint 
+            {
                 for (int i = 0; i != M; i++)
                 {
                     IloExpr sum(MP_env);
@@ -1230,9 +1433,9 @@ void MP_DM(
                     MP_model.add(sum <= 1);
                     sum.end();
                 }
-            }*/
+            }
 
-            //constraint (1i) (2c) 
+            //constraint (1f) (2b) (2c) 
             {
                 for (int i = 0; i != M; i++)
                 {
@@ -1265,6 +1468,7 @@ void MP_DM(
             
             if (numIter != 0)
             {
+                bool add_max = false;
                 for (int iter = 0; iter < numIter; ++iter)
                 {
 
@@ -1284,6 +1488,8 @@ void MP_DM(
                             }
                         } 
                         MP_model.add(sum1 >= 1);
+
+                        p_DM->cnt_MP_11 ++;
 
                         sum1.end();
                     }
@@ -1315,6 +1521,14 @@ void MP_DM(
                             }
                             obj -= Cmax;
                             MP_model.add(obj >= derived_feasible_obj);
+
+                            if (!add_max)
+                            {
+                                p_DM->cnt_MP_12 ++;
+                                add_max = true;
+                            }
+                            
+
                             obj.end();
 
                         }
@@ -1338,7 +1552,9 @@ void MP_DM(
                             } 
                             MP_model.add(sum1 <= numAccept - 1);
 
-                        sum1.end();
+                            p_DM->cnt_MP_10 ++;
+
+                            sum1.end();
                         }
 
                     }
@@ -1435,6 +1651,7 @@ void MP_DM(
 }
 
 bool SP_DM(
+    cut_DM *p_DM,
     const vector<double> &Zj_Value,
     const vector< vector<double> > &Xij_Value,
     const int DM_timeLimit,
@@ -1450,12 +1667,12 @@ bool SP_DM(
     vector <int> initialAssignment;//MP assignment to machine for each job
     for (int j = 0; j != N; ++j)
     {
-        if (Zj_Value[j] > 0.99)//zj == 1.0
+        if (Zj_Value[j] > 0.9)//zj == 1.0
         {
             acceptJobs.push_back(j);
             for (int i = 0; i != M; ++i)
             {
-                if (Xij_Value[i][j] > 0.99)//xij == 1.0
+                if (Xij_Value[i][j] > 0.9)//xij == 1.0
                 {
                     initialAssignment.push_back(i);
                 }
@@ -1492,7 +1709,8 @@ bool SP_DM(
         bool SPM_reach_timelimit = false;
         bool SPM_solution_unknown = false;
 
-        SPM(SP_IterNum,DM_timeLimit,startTime,acceptJobs,initialAssignment,SPS_Cmax_h,SPS_Oi_h,feasible_h,best_feasible_Cmax,is_SPM_feasible, SPM_Cmax_h,SPM_Xij_h, SPM_reach_timelimit, SPM_solution_unknown);
+        SPM(p_DM,
+            SP_IterNum,DM_timeLimit,startTime,acceptJobs,initialAssignment,SPS_Cmax_h,SPS_Oi_h,feasible_h,best_feasible_Cmax,is_SPM_feasible, SPM_Cmax_h,SPM_Xij_h, SPM_reach_timelimit, SPM_solution_unknown);
 
 
         if (SPM_reach_timelimit == true || SPM_solution_unknown == true)
@@ -1552,7 +1770,7 @@ bool SP_DM(
 
                         // / /////////UPDATE BEST FEASIBLE SOLUTION CMAX///////////// 
 
-                        if (SP_IterNum == 0)
+                        if (SP_IterNum == 0 || best_feasible_Cmax == 0.0)
                         {
                             best_feasible_Cmax = SPS_Cmax;                   
                         }
@@ -1644,6 +1862,7 @@ bool SP_DM(
 }
 
 void SPM(
+    cut_DM *p_DM,
     const int SP_IterNum,
     const int DM_timeLimit,
     const time_t &startTime,
@@ -1730,7 +1949,7 @@ void SPM(
             }
         
 
-            //constraint (1e)
+            //constraint (3d)
             {
                 for (int i = 0; i != M; i++)
                 {
@@ -1749,7 +1968,7 @@ void SPM(
             }
         
 
-            //constraint (1f)
+            //constraint (3e)
             {
                 for (int i = 0; i != M; i++)
                 {
@@ -1768,34 +1987,34 @@ void SPM(
             }
             
 
-            //constraint (1g)
-            /*{
-                for (int i = 0; i != M; i++)
-                {
-                    for (int j = 0; j != acceptJobs.size() + 1; j++)
-                    {
-                        IloExpr sum1(SPM_env);
-                        for (int k = 0; k != acceptJobs.size() + 1; k++)
-                        {
-                            if (j != k)
-                                sum1 += yijk[i][j][k];
-                        }
-                        IloExpr sum2(SPM_env);
-                        for (int h = 0; h != acceptJobs.size() + 1; h++)
-                        {
-                            if (j != h)
-                                sum2 += yijk[i][h][j];
-                        }
-                        SPM_model.add(sum1 == sum2);
-                        sum1.end();
-                        sum2.end();
-                    }
-                }
-            }*/
+            //constraint
+            // {
+            //     for (int i = 0; i != M; i++)
+            //     {
+            //         for (int j = 0; j != acceptJobs.size() + 1; j++)
+            //         {
+            //             IloExpr sum1(SPM_env);
+            //             for (int k = 0; k != acceptJobs.size() + 1; k++)
+            //             {
+            //                 if (j != k)
+            //                     sum1 += yijk[i][j][k];
+            //             }
+            //             IloExpr sum2(SPM_env);
+            //             for (int h = 0; h != acceptJobs.size() + 1; h++)
+            //             {
+            //                 if (j != h)
+            //                     sum2 += yijk[i][h][j];
+            //             }
+            //             SPM_model.add(sum1 == sum2);
+            //             sum1.end();
+            //             sum2.end();
+            //         }
+            //     }
+            // }
         
 
-            //constraint (1h)
-            /*{
+            //constraint
+            {
                 for (int i = 0; i != M; i++)
                 {
                     IloExpr sum(SPM_env);
@@ -1806,10 +2025,10 @@ void SPM(
                     SPM_model.add(sum <= 1);
                     sum.end();
                 }
-            }*/
+            }
             
 
-            //constraint (1i) (2c) (2d)
+            //constraint (3f) (3g) (3h)
             {
                 for (int i = 0; i != M; i++)
                 {
@@ -1844,6 +2063,7 @@ void SPM(
 
             if (SP_IterNum > 0)
             {
+                bool add_bound = false;
                 for (int iter = 0; iter < SP_IterNum; ++iter)
                 {
                     
@@ -1858,13 +2078,16 @@ void SPM(
                                 int temp_assign = 0;
                                 for (int j = 0; j != acceptJobs.size(); ++j)
                                 {
-                                    if (SPM_Xij_h[iter][i][j] > 0.99)//x^h_ij == 1
+                                    if (SPM_Xij_h[iter][i][j] > 0.9)//x^h_ij == 1
                                     {
                                         sum += xij[i][j];
                                         ++temp_assign;
                                     }
                                 }
                                 SPM_model.add(sum <= temp_assign - 1);
+
+                                p_DM->cnt_SPM_6 ++;
+
                                 sum.end();
                             }
                         }
@@ -1877,7 +2100,7 @@ void SPM(
                         {
                             for (int j = 0; j != acceptJobs.size(); ++j)
                             {
-                                if (SPM_Xij_h[iter][i][j] > 0.99)//x^h_ij == 1
+                                if (SPM_Xij_h[iter][i][j] > 0.9)//x^h_ij == 1
                                 {
                                     sum += 1 - xij[i][j];
                                 }
@@ -1887,7 +2110,11 @@ void SPM(
                                 }
                             }
                         }
+
                         SPM_model.add(sum >= 1);
+
+                        p_DM->cnt_SPM_7 ++;
+
                         sum.end();
 
                         //upper bound for Cmax
@@ -1895,6 +2122,8 @@ void SPM(
                         if (best_feasible_Cmax > 0.9)
                         {
                             SPM_model.add(Cmax <= best_feasible_Cmax);
+
+                            p_DM->cnt_SPM_ub ++;
                         }
 
                     }
@@ -1929,6 +2158,8 @@ void SPM(
 
                             SPM_model.add(Cmax >= SPS_Oi_h[iter][i] - sum);
 
+                            p_DM->cnt_SPM_5 ++;
+
                             sum.end();
                         }
                     }
@@ -1937,6 +2168,11 @@ void SPM(
                     //lower bound for Cmax
                     {
                         SPM_model.add(Cmax >= SPM_Cmax_h[iter]);
+                        if (!add_bound)
+                        {
+                            p_DM->cnt_SPM_lb ++;
+                            add_bound = true;
+                        }
                     }
 
 
@@ -2147,6 +2383,7 @@ void SPS(
             // / /////////////CONSTRAINTS///////////////////////////
 
             // Objective Function  + Oi definition
+            // (4a) (4d)
             { 
                 for (int i = 0; i != M; i++)
                 {
@@ -2182,6 +2419,7 @@ void SPS(
             }
 
             //constraint: for k predecessor
+            // (4b)
             {
                 for (int i = 0; i != M; i++)
                 {
@@ -2201,6 +2439,7 @@ void SPS(
         
 
             //constraint: for j successor
+            //(4c)
             {
                 for (int i = 0; i != M; i++)
                 {
@@ -2220,33 +2459,33 @@ void SPS(
             
 
             //constraint: predecessor == successor
-            /*{
-                for (int i = 0; i != M; i++)
-                {
-                    for (int j = 0; j != acceptJobs.size() + 1; j++)
-                    {
-                        IloExpr sum1(SPS_env);
-                        for (int k = 0; k != acceptJobs.size() + 1; k++)
-                        {
-                            if (j != k)
-                                sum1 += yijk[i][j][k];
-                        }
-                        IloExpr sum2(SPS_env);
-                        for (int h = 0; h != acceptJobs.size() + 1; h++)
-                        {
-                            if (j != h)
-                                sum2 += yijk[i][h][j];
-                        }
-                        SPS_model.add(sum1 == sum2);
-                        sum1.end();
-                        sum2.end();
-                    }
-                }
-            }*/
+            // {
+            //     for (int i = 0; i != M; i++)
+            //     {
+            //         for (int j = 0; j != acceptJobs.size() + 1; j++)
+            //         {
+            //             IloExpr sum1(SPS_env);
+            //             for (int k = 0; k != acceptJobs.size() + 1; k++)
+            //             {
+            //                 if (j != k)
+            //                     sum1 += yijk[i][j][k];
+            //             }
+            //             IloExpr sum2(SPS_env);
+            //             for (int h = 0; h != acceptJobs.size() + 1; h++)
+            //             {
+            //                 if (j != h)
+            //                     sum2 += yijk[i][h][j];
+            //             }
+            //             SPS_model.add(sum1 == sum2);
+            //             sum1.end();
+            //             sum2.end();
+            //         }
+            //     }
+            // }
         
 
             //constraint: only one first job on machine
-            /*{
+            {
                 for (int i = 0; i != M; i++)
                 {
                     IloExpr sum(SPS_env);
@@ -2257,15 +2496,15 @@ void SPS(
                     SPS_model.add(sum <= 1);
                     sum.end();
                 }
-            }*/
+            }
             
             //constraint: Ui limit & Cmax
-            /*{
-                for (int i = 0; i != M; ++i)
-                {
-                    SPS_model.add(oi[i] <= U_i[i]);
-                }
-            }*/
+            // {
+            //     for (int i = 0; i != M; ++i)
+            //     {
+            //         SPS_model.add(oi[i] <= U_i[i]);
+            //     }
+            // }
 
             //uj position cut 1
             {
@@ -2486,7 +2725,7 @@ void checkSP(
             {
                 for (int i = 0; i != M; i++)
                 {
-                    //model.add(xij[i][j] <= zj[j]);
+                    model.add(xij[i][j] <= zj[j]);
                 }
                 model.add(Cmax >= Cj[j]);
                 model.add(Cj[j] <= zj[j] * L);
@@ -2541,7 +2780,7 @@ void checkSP(
         }
 
         //constraint (1g)
-        /*{
+        {
             for (int i = 0; i != M; i++)
             {
                 for (int j = 0; j != N + 1; j++)
@@ -2563,7 +2802,7 @@ void checkSP(
                     sum2.end();
                 }
             }
-        }*/
+        }
         
         
         //constraint (1j) (1n)
@@ -2589,7 +2828,7 @@ void checkSP(
 
         
         //constraint (1h)
-        /*{
+        {
             for (int i = 0; i != M; i++)
             {
                 IloExpr sum(env);
@@ -2600,7 +2839,7 @@ void checkSP(
                 model.add(sum <= 1);
                 sum.end();
             }
-        }*/
+        }
         
         //constraint (1l)
         {
@@ -2674,6 +2913,960 @@ void checkSP(
     env.end();
 }
 
+void cl_LBBD(
+    cut_CLASSIC *p_CL,
+    const int cl_LBBD_timeLimit,
+    double &cl_LBBD_obj,
+    double &cl_LBBD_time,
+    bool &cl_LBBD_find_feasible
+)
+{
+    
+    cout << '\n' << "*****************CLASSIC LBBD METHOD STARTS*******************" << endl;
+    time_t DM_begin, DM_end;
+    time(&DM_begin);
+    int numIter = 0;//iteration number
+
+    cl_LBBD_obj = -999999.0;
+
+    bool DM_stop_condition = true;
+
+    vector< vector<double> > Zj_Value_h;
+    vector< vector< vector<double> > > Xij_Value_h;
+    vector<double> CMAX_Value_h;
+    vector<double> MP_obj_h;
+    vector<double> SP_Cmax_h;
+
+    vector< vector<double> > SP_Oi_h;
+    vector<bool> SP_Feasible_h;
+
+
+    do
+    {
+        // / // CLASSIC LBBD MASTER PROBLEM/////////////////////////
+        vector<double> Zj_Value;//value for zj
+        vector< vector<double> > Xij_Value;//value for xij
+        double CMAX_Value;//value for Cmax
+        double MP_obj;//obj for MP
+        bool is_MP_feasible = true;
+
+        bool MP_reach_time_limit = false;
+        bool MP_solution_unknown = false;
+
+        cl_MP(p_CL,
+        numIter, cl_LBBD_timeLimit, DM_begin, Zj_Value_h, CMAX_Value_h, MP_obj_h, SP_Cmax_h, SP_Oi_h, Xij_Value_h, SP_Feasible_h,
+        Zj_Value, Xij_Value, CMAX_Value, MP_obj, is_MP_feasible, MP_reach_time_limit, MP_solution_unknown);
+
+        
+
+        if (MP_solution_unknown == true || MP_reach_time_limit == true)
+        {
+            DM_stop_condition = false;
+            
+        }
+        else
+        {
+            Zj_Value_h.push_back(Zj_Value);
+            Xij_Value_h.push_back(Xij_Value);
+            CMAX_Value_h.push_back(CMAX_Value);
+            MP_obj_h.push_back(MP_obj);
+        }
+
+        // / ///////////PRINT THE MP SOLUTION/////////////////////////////////////
+        /*
+        cout << "MP obj  = " << MP_obj << endl;
+        cout << "MP Cmax = " << CMAX_Value << endl;
+        cout << "MP Zj :" << endl;
+        for (int j = 0 ; j != N; j++)
+        {
+            cout << '\t' << "Zj[" << j << "] = " << Zj_Value[j];   
+        }
+        cout << endl;
+        cout << '\n' << "MP Xij :" << endl;
+        for (int j = 0; j != N+1; ++j)
+        {
+            for (int i = 0; i != M; ++i)
+            {
+                cout << '\t' << "X[" << i << "][" << j << "] = " << Xij_Value[i][j];
+            }
+            cout << endl;
+        }
+        cout<<endl;
+        */
+
+        // / ////////////////SUBPROBLEM SOLVING///////////////////////////////////
+        
+
+
+        bool SP_any_feasible_solution;
+        double SP_feasible_Cmax = 0.0;//store Cmax derived by SP
+
+
+        if (DM_stop_condition != false)
+        {         
+
+            if (is_MP_feasible)
+            {
+                vector <int> acceptJobs;//accepted jobs
+                for (int j = 0; j != N; ++j)
+                {
+                    if (Zj_Value[j] > 0.9)//zj == 1.0
+                    {
+                        acceptJobs.push_back(j);
+                    }
+                }
+
+                bool SP_reach_timelimit = false;
+                bool SP_solution_unknown = false;
+                
+                //SP_any_feasible_solution = SP_DM(Zj_Value, Xij_Value, DM_timeLimit, DM_begin, SP_feasible_Cmax, SP_reach_timelimit);
+                cl_SP(numIter,cl_LBBD_timeLimit,DM_begin,acceptJobs,
+                Xij_Value_h, 
+                SP_any_feasible_solution, SP_feasible_Cmax,
+                SP_Oi_h,SP_reach_timelimit, SP_solution_unknown);
+
+                SP_Feasible_h.push_back(SP_any_feasible_solution);
+                SP_Cmax_h.push_back(SP_feasible_Cmax);
+
+                // /////////////////////////UPDATE BEST FOUND SOLUTION///////////////////
+                if (SP_any_feasible_solution)
+                {
+                    double current_obj_value = (-1.0)*SP_feasible_Cmax;
+                    for (int j = 0; j != N; ++j)
+                    {
+                        if (Zj_Value[j] > 0.9)//zj = 1
+                        {
+                            current_obj_value += double(R_j[j]);
+                        }
+                    }
+
+
+                    //////////UPDATE DM STATUS/////////////////////
+                    cl_LBBD_find_feasible = true;
+
+                    
+                    if (current_obj_value > cl_LBBD_obj)
+                    {
+                        cl_LBBD_obj = current_obj_value;
+                    }
+                    
+                }
+
+                if (SP_reach_timelimit == true || SP_solution_unknown == true)
+                {
+                    DM_stop_condition = false;
+                }
+
+                acceptJobs.clear();
+                vector<int> ().swap(acceptJobs);
+
+
+            }
+        }
+
+        // // ///////////////////OPTIMAL CONDITION///////////////////////////////
+
+        if (is_MP_feasible == false || 
+        ((SP_feasible_Cmax == CMAX_Value) && (SP_any_feasible_solution)))
+        {
+            DM_stop_condition = false;
+        }
+
+        ++numIter;
+
+        
+
+        // / ///////////////CLEAR VECTORS////////////////////////////////////////
+        Zj_Value.clear();
+        vector<double> ().swap(Zj_Value);
+        Xij_Value.clear();
+        vector< vector<double> > ().swap(Xij_Value);
+        
+    
+    }while(DM_stop_condition);
+
+    
+
+
+
+    // /////////////////CLEAR VECTORS//////////////////////////////////////////
+    
+    Xij_Value_h.clear();
+    vector< vector< vector<double> > > ().swap(Xij_Value_h);
+    CMAX_Value_h.clear();
+    vector<double> ().swap(CMAX_Value_h);
+    MP_obj_h.clear();
+    vector<double> ().swap(MP_obj_h);
+    SP_Cmax_h.clear();
+    vector<double> ().swap(SP_Cmax_h);
+
+    time(&DM_end);
+    cl_LBBD_time = difftime(DM_end,DM_begin);
+
+    cout << '\n' << "***************** CLASSIC LBBD METHOD ENDS*********************" << endl;
+}
+
+void cl_MP(
+    cut_CLASSIC *p_CL,
+    const int numIter,
+    const int DM_timeLimit,
+    const time_t &startTime,
+    const vector< vector<double> > &Zj_Value_h,
+    const vector<double> &CMAX_Value_h,
+    const vector<double> &MP_obj_h,
+    const vector<double> &SP_Cmax_h,
+    const vector< vector<double> > &SP_Oi_h,
+    const vector< vector< vector<double> > > &Xij_Value_h,
+    const vector<bool> SP_Feasible_h,
+    vector<double> &Zj_Value,
+    vector< vector<double> > &Xij_Value,
+    double &CMAX_Value, 
+    double &MP_obj,
+    bool &is_MP_feasible,
+    bool &MP_reach_time_limit,
+    bool &MP_solution_unknown
+)
+{
+    cout << '\n' << "***************** CLASSIC LBBD Master Problem STARTS *********************" << endl;
+    time_t MP_begin;
+    time(&MP_begin);
+    double MP_time = double(DM_timeLimit) - difftime(MP_begin, startTime);
+    cout << " Residual time for MP = " << MP_time << endl;
+    if (MP_time < 0.0)
+    {
+        MP_reach_time_limit = true;
+    }
+    else
+    {
+        IloEnv MP_env;   
+        try 
+        {
+            // / ////////////CREATE MODEL////////////////////////////////////////
+
+            IloModel MP_model(MP_env);
+            // /////////DECISION VARIABLES/////////////////////////////////////////
+
+            NumVarMatrix xij(MP_env, M);
+            for (int i = 0; i != M; i++)
+            {
+                xij[i] = IloNumVarArray(MP_env, N + 1, 0, 1, ILOINT);
+            }
+
+            IloNumVarArray zj(MP_env, N, 0, 1, ILOINT);
+
+            NumVar3Matrix yijk(MP_env, M);
+            for (int i = 0; i != M; i++)
+            {
+                yijk[i] = NumVarMatrix(MP_env, N + 1);
+                for (int j = 0; j != N + 1; j++)
+                {
+                    yijk[i][j] = IloNumVarArray(MP_env, N + 1, 0, 1, ILOFLOAT);
+                }
+            }
+
+            IloNumVar Cmax(MP_env);
+
+            IloNumVarArray oi(MP_env, M, 0, INFINITY, ILOINT);
+
+            // / /////////////CONSTRAINTS///////////////////////////
+
+            // Objective Function (1a)
+            {
+                IloExpr obj(MP_env);
+                for (int j = 0; j != N; j++)
+                {
+                    obj += R_j[j] * zj[j];
+                }
+                obj -= Cmax;
+                MP_model.add(IloMaximize(MP_env, obj));
+                obj.end();
+            }
+
+            //constraint (1b)
+            {
+                for (int j = 0; j != N; j++)
+                {
+                    IloExpr sum(MP_env);
+                    for (int i = 0; i != M; i++)
+                    {
+                        sum += xij[i][j];
+                    }
+                    MP_model.add(sum == zj[j]);
+                    sum.end();
+                }
+            }
+
+            
+
+            //constraint (1c)
+            {
+                for (int i = 0; i != M; i++)
+                {
+                    MP_model.add(xij[i][N] == 1);
+                }
+            }
+
+            //constraint (1d)
+            {
+                for (int i = 0; i != M; i++)
+                {
+                    for (int k = 0; k != N + 1; k++)
+                    {
+                        IloExpr sum(MP_env);
+                        for (int j = 0; j != N + 1; j++)
+                        {
+                            if (j != k)
+                                sum += yijk[i][j][k];
+                        }
+                        MP_model.add(xij[i][k] == sum);
+                        sum.end();
+                    }
+                }
+            }
+
+            //constraint (1e)
+            {
+                for (int i = 0; i != M; i++)
+                {
+                    for (int j = 0; j != N + 1; j++)
+                    {
+                        IloExpr sum(MP_env);
+                        for (int k = 0; k != N + 1; k++)
+                        {
+                            if (j != k)
+                                sum += yijk[i][j][k];
+                        }
+                        MP_model.add(xij[i][j] == sum);
+                        sum.end();
+                    }
+                }
+            }
+
+            
+
+            //constraint 
+            {
+                for (int i = 0; i != M; i++)
+                {
+                    IloExpr sum(MP_env);
+                    for (int j = 0; j != N; j++)
+                    {
+                        sum += yijk[i][N][j];
+                    }
+                    MP_model.add(sum <= 1);
+                    sum.end();
+                }
+            }
+
+            //constraint (1f) (2b) (2c) 
+            {
+                for (int i = 0; i != M; i++)
+                {
+                    IloExpr sum1(MP_env);
+                    IloExpr sum2(MP_env);
+                    for (int j = 0; j != N; j++)
+                    {
+                        sum1 += xij[i][j] * PT_ij[i][j];
+                    }
+                    for (int j = 0; j != N + 1; j++)
+                    {
+                        for (int k = 0; k != N + 1; k++)
+                        {
+                            if (j != k)
+                            {
+                                sum2 += yijk[i][j][k] * ST_ijk[i][j][k];
+                            }
+                        }
+                    }
+                    MP_model.add(oi[i] == sum1 + sum2);
+                    MP_model.add(oi[i] <= U_i[i]);
+                    MP_model.add(Cmax >= oi[i]);
+                    
+                    sum1.end();
+                    sum2.end();
+                }
+            }
+
+
+            // //////////////////////CUTS AND BOUNDS//////////////////////////////
+            
+            if (numIter != 0)
+            {
+                bool add_max = false;
+                bool add_bound = false;
+                for (int iter = 0; iter < numIter; ++iter)
+                {
+
+                    //combinatorial cut
+                    {
+
+                        IloExpr sum1(MP_env);
+                        for (int i = 0; i != M; ++i)
+                        {
+                            for (int j = 0; j != N; ++j)
+                            {
+                                if (Xij_Value_h[iter][i][j] > 0.9)//xij = 1
+                                {
+                                    sum1 += 1 - xij[i][j];
+                                }
+                                else
+                                {
+                                    sum1 += xij[i][j];
+                                }
+                            } 
+                        }
+                        MP_model.add(sum1 >= 1);
+                        p_CL->cnt_MP_combinatorial ++;
+                        sum1.end();
+                    }
+
+                    //no-good cut
+                    {
+                        if (SP_Feasible_h[iter] == false)
+                        {
+                            for (int i = 0; i != M; ++i)
+                            {
+                                if (SP_Oi_h[iter][i] > U_i[i])
+                                {
+                                    IloExpr sum(MP_env);
+                                    int cnt_assign = 0;
+                                    for (int j = 0; j != N; ++j)
+                                    {
+                                        if (Xij_Value_h[iter][i][j] > 0.9)
+                                        {
+                                            sum += xij[i][j];
+                                            cnt_assign++;
+                                        }
+                                    }
+                                    MP_model.add(sum <= cnt_assign - 1);
+                                    p_CL->cnt_MP_no_good ++;
+                                    sum.end();
+                                }
+                            }
+                        }
+                    }
+
+                    //Benders cut
+                    {
+                        
+                        for (int i = 0; i != M; ++i)
+                        {
+                            IloExpr sum(MP_env);
+                            for (int j = 0; j != N; ++j)
+                            {
+                                if (Xij_Value_h[iter][i][j] > 0.9)
+                                {
+                                    int theta_ij = PT_ij[i][j];
+                                    int maxST_ij = ST_ijk[i][N][j];
+
+                                    for (int k = 0; k != N; ++k)
+                                    {
+                                        if (k != j && Xij_Value_h[iter][i][k] > 0.9)
+                                        {
+                                            if (ST_ijk[i][k][j] > maxST_ij)
+                                            {
+                                                maxST_ij = ST_ijk[i][k][j];
+                                            }
+                                        }
+                                    }
+
+                                    sum += (1 - xij[i][j])*(theta_ij + maxST_ij);
+                                }
+                            }
+
+                            MP_model.add(Cmax >= SP_Oi_h[iter][i] - sum);
+                            p_CL->cnt_MP_LBBD ++;
+
+                            
+
+                            sum.end();
+                        }
+                    }
+
+                    {
+                        IloExpr obj(MP_env);                      
+                        for (int j = 0; j != N; j++)
+                        {
+                            obj += R_j[j] * zj[j];
+                        }
+                        obj -= Cmax;
+                        MP_model.add(obj <= MP_obj_h[iter]);
+
+                        if (!add_max)
+                        {
+                            p_CL->cnt_MP_ub++;
+                            add_max = true;
+                        }
+                            
+
+                        obj.end();
+
+                    }
+
+                    {
+                        if (SP_Feasible_h[iter])
+                        {
+                            int temp_Rev = 0;
+                            IloExpr obj(MP_env);                      
+                            for (int j = 0; j != N; j++)
+                            {
+                                obj += R_j[j] * zj[j];
+                                if (Zj_Value_h[iter][j] > 0.9)
+                                {
+                                    temp_Rev += R_j[j];
+                                }
+                            }
+                            obj -= Cmax;
+                            MP_model.add(obj >= temp_Rev - SP_Cmax_h[iter]);
+
+                            if (!add_bound)
+                            {
+                                p_CL->cnt_MP_lb ++;
+                                add_bound = true;
+                            }
+                                
+
+                            obj.end();
+                        }
+                    }
+
+
+                    
+
+
+
+                }
+            }
+            
+
+            // / ///////////OPTIMIZE & VAlUE OUTPUT///////////////////////////
+            IloCplex cplex(MP_model);
+            cplex.setParam(IloCplex::TiLim, MP_time); 
+            cplex.solve();
+            if (cplex.getStatus() == IloAlgorithm::Infeasible)
+            {
+                MP_env.out() << "Infeasible! No Solution --- MP_DM  " << endl;
+                is_MP_feasible = false;
+            }
+            else
+            {
+                MP_env.out() << "Solution status: " << cplex.getStatus() << endl;
+
+                if (cplex.getStatus() == 0)//unknown
+                {
+                    MP_solution_unknown = true;
+                }
+                else
+                {
+                    cout << "obj  = " << cplex.getObjValue() << endl;
+                    MP_obj = cplex.getObjValue();
+
+                    cout << "Cmax = " << cplex.getValue(Cmax) << endl;
+                    CMAX_Value = cplex.getValue(Cmax);
+
+                    
+                    cout << "Zj :" << endl;
+                    for (int j = 0 ; j != N; j++)
+                    {
+                        cout << '\t' << "Zj[" << j << "] = " << cplex.getValue(zj[j]);   
+                    }
+                    cout << endl;
+                    
+                    Zj_Value = get_var_values(cplex,zj,N);
+
+                    
+                    cout << '\n' << "Xij :" << endl;
+                    for (int j = 0; j != N; ++j)
+                    {
+                        for (int i = 0; i != M; ++i)
+                        {
+                            cout << '\t' << "X[" << i << "][" << j << "] = " << cplex.getValue(xij[i][j]);
+                        }
+                        cout << endl;
+                    }
+                    cout<<endl;
+                    
+                    Xij_Value = get_var_values(cplex,xij,M,N+1);
+
+                    
+                    cout << '\n' << "Yijk :" << endl;
+                    for (int i = 0; i != M; ++i)
+                    {
+                        for (int j = 0; j != N+1; ++j)
+                        {
+                            for (int k = 0; k != N+1; ++k)
+                            {
+                                if ( j != k && cplex.getValue(yijk[i][j][k]) != 0)
+                                {
+                                    cout << '\t' << "Y[" << i << "][" << j << "][" << k << "] = " << cplex.getValue(yijk[i][j][k]) << " setup = " << ST_ijk[i][j][k];
+                                }
+                            }
+                        }
+                        cout << endl;
+                    }
+                    cout<<endl;
+                }
+                
+            
+
+            }
+
+        }
+        catch (IloException& ex) {
+            cerr << "Error: " << ex << endl;
+        }
+        catch (...) {
+            cerr << "Error" << endl;
+        }
+        MP_env.end();
+    }
+
+
+
+
+    cout << '\n' << "***************** CLASSIC LBBD Master Problem ENDS*********************" << endl;
+}
+
+
+void cl_SP(
+    const int SP_IterNum,
+    const int DM_timeLimit,
+    const time_t &startTime,
+    const vector<int> &acceptJobs,
+    const vector< vector< vector< double> > > &Xij_Value_h,
+    bool &is_SPS_feasible,
+    double &SPS_Cmax,
+    vector< vector<double> > &SPS_Oi_h,
+    bool &SPS_reach_timelimit,
+    bool &SPS_solution_unknown
+)
+{
+    
+    //cout << '\n' << "***************** CLASSIC LBBD SUB Problem STARTS*********************" << endl;
+    time_t SPS_begin;
+    time(&SPS_begin);
+    double SPS_time = double(DM_timeLimit) - difftime(SPS_begin, startTime);
+    cout << " Residual time for SPS = " << SPS_time << endl;
+
+
+    vector< vector< double> >  SPM_Xij;
+    for (int i = 0; i != M; ++i)
+    {
+        vector<double> SPM_Xi;
+        for (int j = 0; j != acceptJobs.size(); ++j)
+        {
+            int temp_j = acceptJobs[j];
+            if (Xij_Value_h[SP_IterNum][i][temp_j] > 0.9)
+            {
+                SPM_Xi.push_back(1.0);
+            }
+            else
+            {
+                SPM_Xi.push_back(0.0);
+            }
+        }
+        SPM_Xij.push_back(SPM_Xi);
+    }
+
+
+    if (SPS_time < 0.0)
+    {
+        SPS_reach_timelimit = true;
+    }
+    else
+    {
+
+        IloEnv SPS_env;
+        try 
+        {
+            // / ////////////CREATE MODEL////////////////////////////////////////
+
+            IloModel SPS_model(SPS_env);
+            // /////////DECISION VARIABLES/////////////////////////////////////////
+
+            NumVar3Matrix yijk(SPS_env, M);
+            for (int i = 0; i != M; i++)
+            {
+                yijk[i] = NumVarMatrix(SPS_env, acceptJobs.size() + 1);
+                for (int j = 0; j != acceptJobs.size() + 1; j++)
+                {
+                    yijk[i][j] = IloNumVarArray(SPS_env, acceptJobs.size() + 1, 0, 1, ILOINT);
+                }
+            }
+
+            IloNumVarArray oi(SPS_env, M, 0, INFINITY, ILOINT);
+
+            IloNumVarArray uj(SPS_env, acceptJobs.size(), 0, acceptJobs.size() - 1, ILOINT);
+
+            // / /////////////CONSTRAINTS///////////////////////////
+
+            // Objective Function  + Oi definition
+            // (4a) (4d)
+            { 
+                for (int i = 0; i != M; i++)
+                {
+                    IloExpr sum1(SPS_env);
+                    IloExpr sum2(SPS_env);
+                    for (int j = 0; j != acceptJobs.size(); j++)
+                    {
+                        sum1 += SPM_Xij[i][j] * PT_ij[i][acceptJobs[j]];
+                    }
+                    for (int j = 0; j != acceptJobs.size(); j++)
+                    {
+                        for (int k = 0; k != acceptJobs.size(); k++)
+                        {
+                            if (j != k)
+                            {
+                                sum2 += yijk[i][j][k] * ST_ijk[i][acceptJobs[j]][acceptJobs[k]];
+                            }
+                        }
+                        sum2 += yijk[i][j][acceptJobs.size()] * ST_ijk[i][acceptJobs[j]][N];
+                        sum2 += yijk[i][acceptJobs.size()][j] * ST_ijk[i][N][acceptJobs[j]];
+                    }
+                    SPS_model.add(sum1 + sum2 == oi[i]);
+                    sum1.end();
+                    sum2.end();
+                } 
+                IloExpr sum(SPS_env);  
+                for (int i = 0; i != M; ++i)
+                {
+                    sum += oi[i];
+                }
+                SPS_model.add(IloMinimize(SPS_env, sum));   
+                sum.end();     
+            }
+
+            //constraint: for k predecessor
+            // (4b)
+            {
+                for (int i = 0; i != M; i++)
+                {
+                    for (int k = 0; k != acceptJobs.size(); k++)
+                    {
+                        IloExpr sum(SPS_env);
+                        for (int j = 0; j != acceptJobs.size() + 1; j++)
+                        {
+                            if (j != k)
+                                sum += yijk[i][j][k];
+                        }
+                        SPS_model.add(SPM_Xij[i][k] == sum);
+                        sum.end();
+                    }
+                }
+            }
+        
+
+            //constraint: for j successor
+            //(4c)
+            {
+                for (int i = 0; i != M; i++)
+                {
+                    for (int j = 0; j != acceptJobs.size(); j++)
+                    {
+                        IloExpr sum(SPS_env);
+                        for (int k = 0; k != acceptJobs.size() + 1; k++)
+                        {
+                            if (j != k)
+                                sum += yijk[i][j][k];
+                        }
+                        SPS_model.add(SPM_Xij[i][j] == sum);
+                        sum.end();
+                    }
+                }
+            }
+            
+
+            //constraint: predecessor == successor
+            // {
+            //     for (int i = 0; i != M; i++)
+            //     {
+            //         for (int j = 0; j != acceptJobs.size() + 1; j++)
+            //         {
+            //             IloExpr sum1(SPS_env);
+            //             for (int k = 0; k != acceptJobs.size() + 1; k++)
+            //             {
+            //                 if (j != k)
+            //                     sum1 += yijk[i][j][k];
+            //             }
+            //             IloExpr sum2(SPS_env);
+            //             for (int h = 0; h != acceptJobs.size() + 1; h++)
+            //             {
+            //                 if (j != h)
+            //                     sum2 += yijk[i][h][j];
+            //             }
+            //             SPS_model.add(sum1 == sum2);
+            //             sum1.end();
+            //             sum2.end();
+            //         }
+            //     }
+            // }
+        
+
+            //constraint: only one first job on machine
+            {
+                for (int i = 0; i != M; i++)
+                {
+                    IloExpr sum(SPS_env);
+                    for (int j = 0; j != acceptJobs.size(); j++)
+                    {
+                        sum += yijk[i][acceptJobs.size()][j];
+                    }
+                    SPS_model.add(sum <= 1);
+                    sum.end();
+                }
+            }
+            
+            //constraint: Ui limit & Cmax
+            // {
+            //     for (int i = 0; i != M; ++i)
+            //     {
+            //         SPS_model.add(oi[i] <= U_i[i]);
+            //     }
+            // }
+
+            //uj position cut 1
+            {
+                for (int j = 0; j != acceptJobs.size(); ++j)
+                {
+                    for (int k = 0; k != acceptJobs.size(); ++k)
+                    {
+                        if (j != k)
+                        {
+                            IloExpr sum(SPS_env);
+                            for (int i = 0; i != M; ++i)
+                            {
+                                sum += yijk[i][j][k];
+                            }
+                            int job_size = acceptJobs.size();
+                            SPS_model.add(uj[j] - uj[k] + job_size * sum <= job_size - 1);
+                            sum.end();
+                        }
+                    }
+                }
+            }
+
+            //uj position cut 2 & 3
+            {
+                for (int j = 0; j != acceptJobs.size(); ++j)
+                {
+                    IloExpr sum(SPS_env);
+                    for (int i = 0; i != M; ++i)
+                    {
+                        sum += yijk[i][acceptJobs.size()][j];
+                    }
+                    int job_size = acceptJobs.size();
+                    SPS_model.add(uj[j] + (job_size - 1) * sum <= job_size - 1);
+                    SPS_model.add(uj[j] + sum >= 1);
+                    sum.end();
+                }
+            }
+            
+
+            // / ///////////OPTIMIZE & VAlUE OUTPUT///////////////////////////
+            IloCplex cplex(SPS_model);
+
+            cplex.setParam(IloCplex::TiLim, SPS_time); 
+            cplex.solve();
+
+            if (cplex.getStatus() == IloAlgorithm::Infeasible)
+            {
+                SPS_env.out() << "Infeasible! No Solution --- SPS  " << endl;
+                
+            }
+            else
+            {
+                SPS_env.out() << "Solution status: " << cplex.getStatus() << endl;
+
+                if (cplex.getStatus() == 0)
+                {
+                    SPS_solution_unknown = true;
+                    is_SPS_feasible = false;
+                }
+                else
+                {
+
+                    cout << "obj  = " << cplex.getObjValue() << endl;
+                    
+                    cout << "Oi : " << endl;
+                    SPS_Cmax = 0.0;
+                    is_SPS_feasible = true;
+                    vector<double> temp_oi;
+                    for (int i = 0; i != M; ++i)
+                    {
+                        cout << '\t' << "O[" << i << "] = " << cplex.getValue(oi[i]); 
+                        temp_oi.push_back(cplex.getValue(oi[i]));
+                        if (cplex.getValue(oi[i]) > SPS_Cmax)
+                        {
+                            SPS_Cmax = cplex.getValue(oi[i]);
+                        }
+
+                        //check if such a solution is feasible
+                        if (cplex.getValue(oi[i]) > U_i[i])
+                        {
+                            is_SPS_feasible = false;
+                        }
+                    }
+                    SPS_Oi_h.push_back(temp_oi);
+                    temp_oi.clear();
+                    vector<double> ().swap(temp_oi);
+                    cout << endl;
+
+                    cout << "SPS_Cmax = " << SPS_Cmax << endl;
+
+                    cout << '\n' << "Yijk :" << endl;
+                    for (int i = 0; i != M; ++i)
+                    {
+                        for (int j = 0; j != acceptJobs.size(); ++j)
+                        {
+                            for (int k = 0; k != acceptJobs.size(); ++k)
+                            {
+                                if ( j != k && cplex.getValue(yijk[i][j][k]) != 0)
+                                {
+                                    cout << '\t' << "Y[" << i << "][" << acceptJobs[j] << "][" << acceptJobs[k] << "] = " << cplex.getValue(yijk[i][j][k]) << " setup = " << ST_ijk[i][acceptJobs[j]][acceptJobs[k]];
+                                }
+                            }
+
+                            if (cplex.getValue(yijk[i][acceptJobs.size()][j]) != 0)
+                            {
+                                cout << '\t' << "Y[" << i << "][" << N << "][" << acceptJobs[j] << "] = " << cplex.getValue(yijk[i][acceptJobs.size()][j]) << " setup = " << ST_ijk[i][N][acceptJobs[j]];
+                            }
+                            if (cplex.getValue(yijk[i][j][acceptJobs.size()]) != 0)
+                            {
+                                cout << '\t' << "Y[" << i << "][" << acceptJobs[j] << "][" << N << "] = " << cplex.getValue(yijk[i][j][acceptJobs.size()]) << " setup = " << ST_ijk[i][acceptJobs[j]][N];
+                            }
+
+                        }
+                        cout << endl;
+                    }
+                    cout << endl;
+
+                    cout << '\n' << "uj : " << endl;
+                    for (int j = 0; j != acceptJobs.size(); ++j)
+                    {
+                        cout << '\t' << "u[" << acceptJobs[j] << "] = " << cplex.getValue(uj[j]); 
+                    }
+                    cout << endl;
+
+                }
+
+                
+
+            }
+
+        }
+        catch (IloException& ex) {
+            cerr << "Error: " << ex << endl;
+        }
+        catch (...) {
+            cerr << "Error" << endl;
+        }
+        SPS_env.end();
+
+    }
+
+    //cout << '\n' << "***************** CLASSIC LBBD SUB Problem ENDS*********************" << endl;
+    
+}
 
 
 
